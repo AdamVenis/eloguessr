@@ -54,7 +54,7 @@ sample_pgn_string = """[Event "Rated Rapid game"]
 
 
 def all_games(
-    filename="/Users/avenis/Downloads/lichess_db_standard_rated_2014-09.pgn", limit=None
+    filename="C:\\Users\\Anthony\\Documents\\Chess\\data.pgn", limit=None
 ):
     f = open(filename)
     games_processed = 0
@@ -102,6 +102,44 @@ def get_average_elos(games):
 
     return avg(white_elos), avg(black_elos)
 
+def get_all_elos(games):
+    white_elos = []
+    black_elos = []
+    for game in games:
+        white_elos.append(int(game.headers["WhiteElo"]))
+        black_elos.append(int(game.headers["BlackElo"]))
+
+    return white_elos, black_elos
+
+white_elos, black_elos = get_all_elos(all_games(limit=1000))
+
+import matplotlib.pyplot as plt 
+
+all_elos = white_elos+black_elos
+#plt.hist(x=all_elos, bins='auto')
+
+#winrate as a fucntion of difference between elos of two players
+
+import numpy as np
+
+def get_all_elo_diff_by_winner(games):
+    white_elo_diff = []
+    black_elo_diff = []
+    for game in games:
+        if game.headers['Result'] == "1-0":
+            white_elo_diff.append(np.subtract(int(game.headers['WhiteElo']),int(game.headers["BlackElo"])))
+        elif game.headers['Result'] == "0-1":
+            black_elo_diff.append(np.subtract(int(game.headers['BlackElo']),int(game.headers["WhiteElo"])))
+
+    return white_elo_diff, black_elo_diff
+
+#print(get_all_elo_diff_by_winner([game]))
+
+white_elo_diff, black_elo_diff = get_all_elo_diff_by_winner(all_games(limit=1000))
+all_elos_diff_by_winners = white_elo_diff+black_elo_diff
+#print(white_elo_diff)
+plt.hist(x=all_elos_diff_by_winners, bins="auto")
+
 
 def mse(prediction, target):
     return (prediction - target) ** 2
@@ -130,7 +168,7 @@ import tensorflow as tf
 from tensorflow.keras import backend as K
 from tensorflow.keras import layers
 from tensorflow.keras import models
-from keras.utils import to_categorical
+#from keras.utils import to_categorical
 
 tf.compat.v1.enable_eager_execution()
 
