@@ -54,7 +54,7 @@ sample_pgn_string = """[Event "Rated Rapid game"]
 
 
 def all_games(
-    filename="C:\\Users\\Anthony\\Documents\\Chess\\data.pgn", limit=None
+    filename="/Users/avenis/personal/src/eloguessr/finding-elo/data.pgn", limit=None
 ):
     f = open(filename)
     games_processed = 0
@@ -167,8 +167,9 @@ def get_loss(games, white_elo, black_elo, loss=mse):
 import tensorflow as tf
 from tensorflow.keras import backend as K
 from tensorflow.keras import layers
+from tensorflow.keras import optimizers
 from tensorflow.keras import models
-#from keras.utils import to_categorical
+
 
 tf.compat.v1.enable_eager_execution()
 
@@ -176,16 +177,18 @@ NUM_BUCKETS = 12  # < 1000, each 200 up to 3000, > 3000
 
 
 def build_model():
-    input_layer = layers.Input(shape=(28,), dtype="int32", name=f"{name}_input")
+    input_layer = layers.Input(shape=(64*14,), dtype="int32")
     inputs = [input_layer]
 
-    output_layer = layers.Dense(NUM_BUCKETS, activation="softmax")(dense)
+    dense = layers.Dense(256, activation="softmax")(input_layer)
+    dense2 = layers.Dense(32, activation="softmax")(dense)
+    output_layer = layers.Dense(NUM_BUCKETS, activation="softmax")(dense2)
 
     model = models.Model(inputs=inputs, outputs=[output_layer])
-    learning_rate = 1e-3
-    optimizer = tf.train.AdamOptimizer(learning_rate)
+    learning_rate = 1e-4
+    optimizer = optimizers.Adam(learning_rate)
 
-    # model.compile(loss='mse', optimizer=optimizer, metrics=[binary_accuracy])
+    # model.compile(loss='mse', optimizer=optimizer)
     model.compile(
         loss="categorical_crossentropy",
         optimizer=optimizer,
@@ -193,7 +196,6 @@ def build_model():
             "categorical_accuracy",
             category_topK,
             true_bucket_accuracy,
-            categorical_sign_accuracy,
         ],
     )
 
@@ -209,21 +211,66 @@ def category_topK(y_true, y_pred):
     return tf.keras.metrics.top_k_categorical_accuracy(y_true, y_pred, k=3)
 
 
-def generate_dataset():
-    # TODO: fill this in
-    pass
-
-
-def load_dataset():
-    # load dataset
-    (trainX, trainY), (testX, testY) = mnist.load_data()
-    # one hot encode target values
-    trainY = to_categorical(trainY)
-    testY = to_categorical(testY)
+def split(X, Y, train_percentage=1.0):
+    train_samples = int(train_percentage * len(X))
+    trainX, testX = X[:train_samples], X[train_samples:]
+    trainY, testY = Y[:train_samples], Y[train_samples:]
     return trainX, trainY, testX, testY
 
 
-def train():
+def generate_dataset(limit=None):
+    X = []
+    Y = []
+    for game in all_games():
+        if limit is not None and len(X) >= limit:
+            break
+
+        for move in game.mainline():
+            X.append(make_input(move.board(), move.move))
+            key = 'WhiteElo' if move.turn() else 'BlackElo'
+            Y.append(bucket_index(int(game.headers[key])))
+    return split(X, Y)
+
+def bucket_index(elo):
+    result = np.zeros(NUM_BUCKETS)
+    
+    if elo < 1000:
+        result[0] = 1
+    elif elo > 3000:
+        result[-1] = 1
+    else:
+        clipped_elo = max(1000, min(elo, 3000))
+        result[1 + ((clipped_elo - 1000) // 200)] = 1
+    return result
+    
+    
+    
+def make_input(board, move):
+    board_state = board._board_state()
+    bits = [
+        board_state.pawns & board_state.occupied_w,
+        board_state.knights & board_state.occupied_w,
+        board_state.bishops & board_state.occupied_w,
+        board_state.rooks & board_state.occupied_w,
+        board_state.queens & board_state.occupied_w,
+        board_state.kings & board_state.occupied_w,
+        board_state.pawns & board_state.occupied_b,
+        board_state.knights & board_state.occupied_b,
+        board_state.bishops & board_state.occupied_b,
+        board_state.rooks & board_state.occupied_b,
+        board_state.queens & board_state.occupied_b,
+        board_state.kings & board_state.occupied_b,
+    ]
+    result = np.zeros(64 * 14, dtype=np.int64)
+    for i, mask in enumerate(bits):
+        for j in range(64):
+            result[64 * i + j] = 1 if (mask & (1 << j)) > 0 else 0
+    result[64 * 12 + move.from_square] = 1
+    result[64 * 13 + move.to_square] = 1
+    return result
+    
+    
+def train(dataset):
     model = build_model()
     model.fit(
         train_dataset,
@@ -233,3 +280,38 @@ def train():
         verbose=1,
     )
     model.save("model.h5")
+
+
+def visualize_mask(mask):
+    i = 0
+    while i < len(mask):
+        for j in range(8):
+            print(mask[i+8*j:i+8*(j+1)])
+        i += 64
+        print()
+
+
+def predict_elo(model, game, white=True):
+    buckets = np.ones(NUM_BUCKETS)
+    for move in game.mainline():
+        if move.turn() == white:
+            nn_input = make_input(move.board(), move.move)
+            buckets *= model(np.array([nn_input]))
+            buckets /= np.sum(buckets)
+    return buckets
+
+        
+
+model = build_model()
+data = generate_dataset(limit=100_000)
+model.fit(
+    x=np.array(data[0]), 
+    y=np.array(data[1]), 
+    epochs=30, 
+    validation_split=0.8
+)
+
+
+
+
+
