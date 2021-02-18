@@ -69,6 +69,29 @@ def all_games(
         games_processed += 1
 
 
+def filter_games(games):
+    filtered_games = []
+    for game in games: 
+        if ('WhiteElo' not in game.headers) or ('BlackElo' not in game.headers):
+            continue
+        if (1100 < int(game.headers['WhiteElo']) < 2000) and (1100 < int(game.headers['BlackElo']) < 2000):
+            filtered_games.append(game)
+    return filtered_games
+
+def analyse(): 
+    games = all_games()
+    filtered_games_all = filter_games(games)
+    
+    new_pgn = open("C:\\Users\\Anthony\\Documents\\Chess\\filtered_games_all.pgn", "w", encoding="utf-8")
+    exporter = chess.pgn.FileExporter(new_pgn)
+    for game in filtered_games_all:
+        game.accept(exporter)
+    new_pgn.close()
+
+
+
+
+
 game = chess.pgn.read_game(io.StringIO(sample_pgn_string))
 
 
